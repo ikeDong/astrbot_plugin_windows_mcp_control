@@ -1,0 +1,7 @@
+name: astrbot_plugin_windows_mcp_control
+display_name: Windows MCP 电脑控制
+desc: 通过 MCP 协议控制个人 Windows 电脑，严格权限管控，仅管理员可用。
+version: v0.1.0
+author: astrbot
+repo: ""
+astrbot_version: ">=4.16,<5"

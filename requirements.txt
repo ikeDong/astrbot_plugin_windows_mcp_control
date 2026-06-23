@@ -1,0 +1,2 @@
+# AstrBot plugin: Windows MCP Computer Control
+# Dependencies: Uses AstrBot built-in MCP manager, no extra packages required.

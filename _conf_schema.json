@@ -1,0 +1,32 @@
+{
+    "windows_mcp_server_name": {
+        "description": "AstrBot 中已配置的 windows-mcp MCP 服务器名称",
+        "type": "string",
+        "default": "windows-mcp"
+    },
+    "control_keywords": {
+        "description": "明确指向个人电脑控制的关键词列表，逗号分隔",
+        "type": "string",
+        "default": "控制电脑,控制个人电脑,操作电脑,远程控制,电脑操作,管理电脑"
+    },
+    "action_keywords": {
+        "description": "可视为个人 Windows 电脑操作意图的动作关键词，逗号分隔。例如用户说关机、重启、截图、打开应用时，不必额外说控制电脑。",
+        "type": "string",
+        "default": "关机,关闭电脑,关闭主机,重启,重启电脑,锁屏,注销,睡眠,休眠,截图,截屏,屏幕截图,打开,启动,运行,关闭程序,结束进程,杀进程,查看进程,文件,文件夹,目录,复制,移动,删除,新建,重命名,下载,上传,查看系统,系统信息,磁盘,内存,cpu,网络,音量,静音,键盘,鼠标,点击,输入"
+    },
+    "strict_mode": {
+        "description": "严格模式：开启后仅允许明确的远程个人 Windows 电脑操作请求执行。AstrBot 自身运行在 Linux；打开计算器、截图、键鼠输入、启动应用等桌面动作默认视为远程 Windows 操作；明确提到服务器、Docker、Linux、SSH、VPS 等目标时默认不当作个人电脑。",
+        "type": "bool",
+        "default": true
+    },
+    "tool_allowed_sender_ids": {
+        "description": "额外允许调用 LLM 电脑控制工具的发送者 ID，逗号分隔。通常留空，优先使用 AstrBot 全局 admins_id；当 LLM 工具拿不到管理员状态时可填自己的 /sid 用户 ID 作为兜底。",
+        "type": "string",
+        "default": ""
+    },
+    "allowed_commands_hint": {
+        "description": "允许执行的命令类型提示（发送给 LLM 的描述）",
+        "type": "string",
+        "default": "关机、重启、锁屏、截图、打开计算器/应用、文件管理、进程管理、系统信息查询、键鼠输入、音量控制等远程个人 Windows 电脑操作。注意 AstrBot 运行环境是 Linux，目标 Windows 通过 windows-mcp 远程控制。"
+    }
+}
