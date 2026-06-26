@@ -242,9 +242,8 @@ class WindowsMcpControlPlugin(Star):
         except Exception:
             return str(result) if result else "操作完成。"
 
-    @filter.llm_tool(name="windows_mcp_list_tools")
     async def windows_mcp_list_tools(self, **kwargs) -> str:
-        """List all available windows-mcp tools."""
+        """List all available windows-mcp tools for manual diagnostics."""
         try:
             import json
             tool_mgr = self.context.get_llm_tool_manager()
@@ -264,6 +263,12 @@ class WindowsMcpControlPlugin(Star):
 
         except Exception as e:
             return f"获取工具列表失败: {e}"
+
+    @filter.command("wmcp_tools", alias=["电脑控制工具"], description="列出 windows-mcp 可用工具（仅管理员）")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def wmcp_tools(self, event: AstrMessageEvent):
+        """List windows-mcp tools without exposing this as an LLM tool."""
+        yield event.plain_result(await self.windows_mcp_list_tools())
 
     @filter.command("wmcp_status", alias=["电脑控制状态"], description="检查 Windows MCP 控制插件状态")
     @filter.permission_type(filter.PermissionType.ADMIN)
