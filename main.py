@@ -8,11 +8,18 @@ server.
 
 import asyncio
 import json
+import os
+import time
 from typing import Any
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
+
+try:
+    from aiohttp import web
+except Exception:  # pragma: no cover - aiohttp is expected in AstrBot runtime
+    web = None
 
 
 class WindowsMcpControlPlugin(Star):
@@ -74,7 +81,35 @@ class WindowsMcpControlPlugin(Star):
         self.strict_mode: bool = True
         self.allowed_sender_ids: list[str] = []
         self._cached_admins: set[str] = set()
+        self.status_report_enabled: bool = True
+        self.status_report_host: str = "0.0.0.0"
+        self.status_report_port: int = 8765
+        self.status_report_token: str = ""
+        self.status_report_timeout_seconds: int = 300
+        self.status_report_stale_message: str = "好像网络不好，我这边没收到电脑的最新状态。"
+        self.status_storage_path: str = os.path.join(os.path.dirname(__file__), "windows_status_cache.json")
+        self.status_query_keywords: list[str] = [
+            "电脑在干嘛",
+            "电脑在做什么",
+            "电脑现在干嘛",
+            "电脑现在状态",
+            "当前电脑状态",
+            "前台是什么",
+            "后台有什么",
+        ]
+        self._status_cache: dict[str, Any] = {}
+        self._status_lock = asyncio.Lock()
+        self._status_app = None
+        self._status_runner = None
+        self._status_site = None
+        self._status_server_task = None
         self._load_config()
+        self._load_status_cache()
+        if self.status_report_enabled:
+            try:
+                self._status_server_task = asyncio.create_task(self._start_status_server())
+            except RuntimeError:
+                logger.warning("[WindowsMcpControl] 事件循环未就绪，状态上报服务未启动")
 
     def _load_config(self) -> None:
         """Load plugin configuration."""
@@ -96,8 +131,102 @@ class WindowsMcpControlPlugin(Star):
                     self.allowed_sender_ids = [item.strip() for item in allowlist_str.split(",") if item.strip()]
                 admins = config.get("admins_id", []) or config.get("admins", []) or []
                 self._cached_admins = {str(a) for a in admins}
+                self.status_report_enabled = bool(config.get("status_report_enabled", self.status_report_enabled))
+                host = config.get("status_report_host", self.status_report_host)
+                if isinstance(host, str) and host.strip():
+                    self.status_report_host = host.strip()
+                try:
+                    self.status_report_port = int(config.get("status_report_port", self.status_report_port))
+                except (TypeError, ValueError):
+                    pass
+                token = config.get("status_report_token", self.status_report_token)
+                if isinstance(token, str):
+                    self.status_report_token = token.strip()
+                try:
+                    self.status_report_timeout_seconds = int(
+                        config.get("status_report_timeout_seconds", self.status_report_timeout_seconds)
+                    )
+                except (TypeError, ValueError):
+                    pass
+                stale_message = config.get("status_report_stale_message", self.status_report_stale_message)
+                if isinstance(stale_message, str) and stale_message.strip():
+                    self.status_report_stale_message = stale_message.strip()
+                storage_path = config.get("status_storage_path", self.status_storage_path)
+                if isinstance(storage_path, str) and storage_path.strip():
+                    self.status_storage_path = storage_path.strip()
+                query_kw_str = config.get("status_query_keywords", "")
+                if query_kw_str:
+                    self.status_query_keywords = [k.strip() for k in query_kw_str.split(",") if k.strip()]
         except Exception as e:
             logger.warning(f"[WindowsMcpControl] 配置加载失败，使用默认值: {e}")
+
+    def _load_status_cache(self) -> None:
+        try:
+            if os.path.exists(self.status_storage_path):
+                with open(self.status_storage_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    self._status_cache = data
+        except Exception as e:
+            logger.warning(f"[WindowsMcpControl] 状态缓存读取失败: {e}")
+
+    def _save_status_cache_sync(self) -> None:
+        try:
+            os.makedirs(os.path.dirname(self.status_storage_path), exist_ok=True)
+            with open(self.status_storage_path, "w", encoding="utf-8") as f:
+                json.dump(self._status_cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.warning(f"[WindowsMcpControl] 状态缓存写入失败: {e}")
+
+    async def _start_status_server(self) -> None:
+        if web is None:
+            logger.warning("[WindowsMcpControl] aiohttp 不可用，状态上报服务未启动")
+            return
+        try:
+            app = web.Application(client_max_size=256 * 1024)
+            app.router.add_get("/health", self._handle_status_health)
+            app.router.add_post("/windows-status/report", self._handle_status_report)
+            self._status_app = app
+            self._status_runner = web.AppRunner(app)
+            await self._status_runner.setup()
+            self._status_site = web.TCPSite(self._status_runner, self.status_report_host, self.status_report_port)
+            await self._status_site.start()
+            logger.info(
+                f"[WindowsMcpControl] Windows 状态上报服务已启动: "
+                f"{self.status_report_host}:{self.status_report_port}"
+            )
+        except Exception as e:
+            logger.error(f"[WindowsMcpControl] Windows 状态上报服务启动失败: {e}")
+
+    async def _handle_status_health(self, request):
+        return web.json_response({"ok": True, "service": "windows-mcp-status"})
+
+    def _check_report_token(self, request, payload: dict[str, Any]) -> bool:
+        if not self.status_report_token:
+            return True
+        auth = request.headers.get("Authorization", "")
+        if auth == f"Bearer {self.status_report_token}":
+            return True
+        return payload.get("token") == self.status_report_token
+
+    async def _handle_status_report(self, request):
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid json"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response({"ok": False, "error": "json object required"}, status=400)
+        if not self._check_report_token(request, payload):
+            return web.json_response({"ok": False, "error": "unauthorized"}, status=401)
+
+        payload.pop("token", None)
+        now = time.time()
+        payload["received_at"] = now
+        payload["received_at_text"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now))
+        async with self._status_lock:
+            self._status_cache = payload
+            self._save_status_cache_sync()
+        return web.json_response({"ok": True, "received_at": now})
 
     def _is_admin(self, event: AstrMessageEvent) -> bool:
         """Check whether sender may use remote Windows control tools."""
@@ -136,6 +265,95 @@ class WindowsMcpControlPlugin(Star):
 
         keywords = tuple(dict.fromkeys(self.control_keywords + self.action_keywords))
         return any(keyword in text_lower for keyword in keywords)
+
+    def _status_age_seconds(self) -> float | None:
+        received_at = self._status_cache.get("received_at")
+        if not isinstance(received_at, (int, float)):
+            return None
+        return max(0.0, time.time() - float(received_at))
+
+    def _format_duration(self, seconds: float | int | None) -> str:
+        if seconds is None:
+            return "未知"
+        seconds = int(max(0, seconds))
+        if seconds < 60:
+            return f"{seconds}秒"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes}分钟"
+        hours = minutes // 60
+        rest = minutes % 60
+        return f"{hours}小时{rest}分钟" if rest else f"{hours}小时"
+
+    def _shorten(self, value: Any, limit: int = 120) -> str:
+        text = str(value or "").strip()
+        if len(text) <= limit:
+            return text
+        return text[: limit - 1] + "…"
+
+    def _format_windows_cached_status(self) -> str:
+        if not self._status_cache:
+            return self.status_report_stale_message
+
+        age = self._status_age_seconds()
+        if age is None or age > self.status_report_timeout_seconds:
+            return self.status_report_stale_message
+
+        data = self._status_cache
+        foreground = data.get("foreground") if isinstance(data.get("foreground"), dict) else {}
+        system = data.get("system") if isinstance(data.get("system"), dict) else {}
+        background_windows = data.get("background_windows") or []
+        top_processes = data.get("top_processes") or []
+        idle_seconds = data.get("idle_seconds")
+
+        lines = [f"电脑状态刚刚更新过，约{self._format_duration(age)}前。"]
+        if foreground:
+            process = self._shorten(foreground.get("process") or foreground.get("process_name") or "未知进程", 48)
+            title = self._shorten(foreground.get("title") or "无标题窗口", 96)
+            lines.append(f"前台在用 {process}：{title}")
+        if idle_seconds is not None:
+            lines.append(f"最近空闲约 {self._format_duration(idle_seconds)}。")
+        if isinstance(system, dict):
+            bits = []
+            if system.get("cpu_percent") is not None:
+                bits.append(f"CPU {system.get('cpu_percent')}%")
+            if system.get("memory_percent") is not None:
+                bits.append(f"内存 {system.get('memory_percent')}%")
+            if bits:
+                lines.append("系统占用：" + "，".join(bits))
+        if isinstance(background_windows, list) and background_windows:
+            names = []
+            for item in background_windows[:8]:
+                if isinstance(item, dict):
+                    names.append(self._shorten(item.get("process") or item.get("title") or "未知", 24))
+                else:
+                    names.append(self._shorten(item, 24))
+            if names:
+                lines.append("后台窗口有：" + "、".join(names))
+        if isinstance(top_processes, list) and top_processes:
+            names = []
+            for item in top_processes[:6]:
+                if isinstance(item, dict):
+                    cpu = item.get("cpu_percent")
+                    mem = item.get("memory_mb")
+                    name = self._shorten(item.get("name") or item.get("process") or "未知", 24)
+                    suffix = []
+                    if cpu is not None:
+                        suffix.append(f"CPU {cpu}%")
+                    if mem is not None:
+                        suffix.append(f"{mem}MB")
+                    names.append(f"{name}({'/'.join(suffix)})" if suffix else name)
+                else:
+                    names.append(self._shorten(item, 24))
+            if names:
+                lines.append("高占用进程：" + "、".join(names))
+        return "\n".join(lines)
+
+    def _has_status_query_intent(self, text: str) -> bool:
+        lowered = text.lower().strip()
+        if not lowered:
+            return False
+        return any(keyword.lower() in lowered for keyword in self.status_query_keywords)
 
     async def _call_mcp_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
         """Call a tool on the configured windows-mcp server."""
@@ -242,6 +460,20 @@ class WindowsMcpControlPlugin(Star):
         except Exception:
             return str(result) if result else "操作完成。"
 
+
+    @filter.llm_tool(name="get_windows_cached_status")
+    async def get_windows_cached_status(self, event: AstrMessageEvent) -> str:
+        """Get cached Windows computer status without calling windows-mcp or taking screenshots.
+
+        Use this when the user asks what the Windows computer is doing, what the
+        foreground window is, or what is running in the background. This tool only
+        reads the latest status proactively reported by the Windows reporter.
+        If the report is stale, it says the network seems bad instead of using MCP.
+        """
+        if not self._is_admin(event):
+            return "权限拒绝：此功能仅限管理员使用。"
+        return self._format_windows_cached_status()
+
     async def windows_mcp_list_tools(self, **kwargs) -> str:
         """List all available windows-mcp tools for manual diagnostics."""
         try:
@@ -283,7 +515,14 @@ class WindowsMcpControlPlugin(Star):
             f"触发关键词: {', '.join(self.control_keywords)}",
             f"动作关键词: {', '.join(self.action_keywords)}",
             f"管理员ID: {event.get_sender_id()}",
+            f"状态上报服务: {'开启' if self.status_report_enabled else '关闭'}",
+            f"状态上报地址: {self.status_report_host}:{self.status_report_port}",
+            f"状态超时: {self.status_report_timeout_seconds}秒",
         ]
+        age = self._status_age_seconds()
+        status_lines.append(
+            f"最近上报: {self._format_duration(age)}前" if age is not None else "最近上报: 无"
+        )
 
         try:
             tool_mgr = self.context.get_llm_tool_manager()
@@ -307,6 +546,12 @@ class WindowsMcpControlPlugin(Star):
 
         yield event.plain_result("\n".join(status_lines))
 
+
+    @filter.command("wmcp_cached_status", alias=["电脑缓存状态"], description="查看 Windows 主动上报的缓存状态")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def wmcp_cached_status(self, event: AstrMessageEvent):
+        yield event.plain_result(self._format_windows_cached_status())
+
     @filter.command("wmcp_call", alias=["电脑控制"], description="直接调用 windows-mcp 工具（仅管理员）")
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def wmcp_call(self, event: AstrMessageEvent, tool_name: str = "", arguments: str = "{}"):
@@ -329,4 +574,11 @@ class WindowsMcpControlPlugin(Star):
 
     async def terminate(self) -> None:
         """Clean up resources when plugin unloads."""
+        if self._status_server_task and not self._status_server_task.done():
+            self._status_server_task.cancel()
+        if self._status_runner is not None:
+            try:
+                await self._status_runner.cleanup()
+            except Exception as e:
+                logger.warning(f"[WindowsMcpControl] 状态上报服务关闭失败: {e}")
         logger.info("[WindowsMcpControl] 插件已卸载")

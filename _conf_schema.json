@@ -28,5 +28,45 @@
         "description": "允许执行的命令类型提示（发送给 LLM 的描述）",
         "type": "string",
         "default": "关机、重启、锁屏、截图、打开计算器/应用、文件管理、进程管理、系统信息查询、键鼠输入、音量控制等远程个人 Windows 电脑操作。注意 AstrBot 运行环境是 Linux，目标 Windows 通过 windows-mcp 远程控制。"
+    },
+    "status_report_enabled": {
+        "description": "启用 Windows 主动状态上报服务。开启后插件会监听 HTTP 接口接收 Windows reporter 定时上报。",
+        "type": "bool",
+        "default": true
+    },
+    "status_report_host": {
+        "description": "Windows 状态上报服务监听地址。Docker/跨机器访问通常用 0.0.0.0；只允许本机反代时可用 127.0.0.1。",
+        "type": "string",
+        "default": "0.0.0.0"
+    },
+    "status_report_port": {
+        "description": "Windows 状态上报服务监听端口。Windows reporter POST 到 /windows-status/report。",
+        "type": "int",
+        "default": 8765
+    },
+    "status_report_token": {
+        "description": "Windows 状态上报鉴权 token。强烈建议设置；Windows reporter 使用 Authorization: Bearer <token>。留空则不校验。",
+        "type": "string",
+        "default": ""
+    },
+    "status_report_timeout_seconds": {
+        "description": "状态缓存超时时间，超过该时间未收到上报时回答网络可能不好，不再尝试截图。",
+        "type": "int",
+        "default": 300
+    },
+    "status_report_stale_message": {
+        "description": "状态上报缺失或超时时的回复文案。",
+        "type": "string",
+        "default": "好像网络不好，我这边没收到电脑的最新状态。"
+    },
+    "status_query_keywords": {
+        "description": "询问电脑状态的关键词，逗号分隔。LLM 工具描述也会引导模型直接读取缓存状态。",
+        "type": "string",
+        "default": "电脑在干嘛,电脑在做什么,电脑现在干嘛,电脑现在状态,当前电脑状态,前台是什么,后台有什么"
+    },
+    "status_storage_path": {
+        "description": "Windows 状态缓存 JSON 路径。留默认即可。",
+        "type": "string",
+        "default": "/root/AstrBot-master/data/plugins/astrbot_plugin_windows_mcp_control/windows_status_cache.json"
     }
 }

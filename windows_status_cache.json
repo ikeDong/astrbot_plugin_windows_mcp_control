@@ -1,0 +1,122 @@
+{
+  "background_windows": [
+    {
+      "process": "ApplicationFrameHost",
+      "pid": 11216,
+      "title": "设置"
+    },
+    {
+      "process": "billiards",
+      "pid": 3844,
+      "title": "优泽计费系统　　"
+    },
+    {
+      "process": "chrome",
+      "pid": 14244,
+      "title": "腾讯云 OrcaTerm - Google Chrome"
+    },
+    {
+      "process": "LeagueClientUx",
+      "pid": 25188,
+      "title": "League of Legends"
+    },
+    {
+      "process": "qianji",
+      "pid": 13240,
+      "title": "QianJi"
+    },
+    {
+      "process": "QQ",
+      "pid": 20664,
+      "title": "QQ"
+    },
+    {
+      "process": "SystemSettings",
+      "pid": 20464,
+      "title": "设置"
+    },
+    {
+      "process": "TextInputHost",
+      "pid": 18196,
+      "title": "Windows 输入体验"
+    },
+    {
+      "process": "WindowsTerminal",
+      "pid": 11376,
+      "title": "C:\\Windows\\System32\\cmd.exe - powershell  -ExecutionPolicy Bypass -File .\\windows_status_reporter.ps1 -Endpoint \"http://101.34.58.173:8765/windows-status/report\" -Token \"5f5e2c190627447be65bb5018a19ff00e0f000b4cc54b7a5df45b109ad00e15d\" -IntervalSeconds 120"
+    },
+    {
+      "process": "XY_YXQ_Nethelper",
+      "pid": 28096,
+      "title": "SOUI_DUMMY_WND"
+    }
+  ],
+  "top_processes": [
+    {
+      "name": "LeagueClient",
+      "pid": 24512,
+      "memory_mb": 1224.2
+    },
+    {
+      "name": "League of Legends",
+      "pid": 17032,
+      "memory_mb": 1131.8
+    },
+    {
+      "name": "java",
+      "pid": 26568,
+      "memory_mb": 1058.8
+    },
+    {
+      "name": "LeagueClientUxRender",
+      "pid": 25864,
+      "memory_mb": 591.1
+    },
+    {
+      "name": "QQ",
+      "pid": 20664,
+      "memory_mb": 534.3
+    },
+    {
+      "name": "explorer",
+      "pid": 11084,
+      "memory_mb": 494.2
+    },
+    {
+      "name": "chrome",
+      "pid": 13156,
+      "memory_mb": 408.2
+    },
+    {
+      "name": "wegame",
+      "pid": 19344,
+      "memory_mb": 397.3
+    },
+    {
+      "name": "chrome",
+      "pid": 14244,
+      "memory_mb": 351
+    },
+    {
+      "name": "QQ",
+      "pid": 18680,
+      "memory_mb": 333.1
+    }
+  ],
+  "timestamp": "2026-06-27T15:26:06.7721715+08:00",
+  "idle_seconds": 0,
+  "user": "ikedong",
+  "system": {
+    "cpu_percent": null,
+    "memory_percent": null
+  },
+  "hostname": "11B329523B38C17",
+  "foreground": {
+    "title": "League of Legends (TM) Client",
+    "pid": 17032,
+    "path": null,
+    "process": "League of Legends"
+  },
+  "received_at": 1782545167.5240436,
+  "received_at_text": "2026-06-27 15:26:07"
+}

@@ -8,7 +8,13 @@
 
 - **LLM 工具注册**：
   - `windows_mcp_control`：调用 windows-mcp 服务器的指定工具来控制电脑
+  - `get_windows_cached_status`：读取 Windows 主动上报的状态缓存，不截图、不调用 MCP
   - 可用工具列表不暴露给 LLM，避免模型每次控制电脑前先查询工具列表
+
+- **Windows 主动状态上报**：
+  - 插件内置轻量 HTTP 接口：`POST /windows-status/report`
+  - Windows 端定时上报前台窗口、空闲时长、后台窗口和高占用进程
+  - 超过配置时间未上报时，直接返回“好像网络不好”类文案，不再临时截图
 
 - **三重权限管控**：
   1. 管理员身份验证：非管理员直接拒绝，不执行任何操作
@@ -34,6 +40,13 @@
 | `strict_mode` | bool | `true` | 严格模式，开启后必须是明确的远程 Windows/个人电脑操作 |
 | `tool_allowed_sender_ids` | string | 空 | 额外允许调用 LLM 工具的发送者 ID，逗号分隔，通常留空优先使用 AstrBot 全局 `admins_id` |
 | `allowed_commands_hint` | string | `文件管理、进程管理,...` | 允许执行的命令类型提示 |
+| `status_report_enabled` | bool | `true` | 是否启用 Windows 主动状态上报服务 |
+| `status_report_host` | string | `0.0.0.0` | 状态上报服务监听地址 |
+| `status_report_port` | int | `8765` | 状态上报服务监听端口 |
+| `status_report_token` | string | 空 | 上报鉴权 token，建议配置 |
+| `status_report_timeout_seconds` | int | `300` | 超过多久没上报就认为状态过期 |
+| `status_report_stale_message` | string | `好像网络不好...` | 状态过期时的回复文案 |
+| `status_query_keywords` | string | `电脑在干嘛,...` | 询问电脑状态的关键词 |
 
 ## 使用方式
 
@@ -50,7 +63,32 @@ LLM: [调用 windows_mcp_control 工具，执行远程 Windows 应用启动]
 
 ```
 /wmcp_status                    # 查看状态
+/wmcp_cached_status             # 查看 Windows 主动上报的缓存状态
 /wmcp_call list_files {"path":"C:\\"}  # 直接调用工具
+```
+
+### Windows 主动上报方式
+
+插件启动后会监听：
+
+```
+http://<AstrBot主机>:8765/windows-status/report
+```
+
+把 `windows_status_reporter.ps1` 放到 Windows 上运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows_status_reporter.ps1 -Endpoint "http://<AstrBot主机>:8765/windows-status/report" -Token "你的token" -IntervalSeconds 120
+```
+
+也可以用 Windows 任务计划程序设置为开机自动运行。建议在 AstrBot 插件配置里设置 `status_report_token`，并让 Windows 脚本使用同一个 token。
+
+询问“电脑在干嘛”“前台是什么”“后台有什么”时，LLM 会优先读取 `get_windows_cached_status` 的缓存状态；如果超过 `status_report_timeout_seconds` 没有收到上报，会返回配置里的网络异常文案。
+
+手动查看缓存：
+
+```
+/wmcp_cached_status
 ```
 
 ## 安全说明
