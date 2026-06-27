@@ -23,8 +23,9 @@ except Exception:  # pragma: no cover - aiohttp is expected in AstrBot runtime
 
 
 class WindowsMcpControlPlugin(Star):
-    def __init__(self, context: Context):
-        super().__init__(context)
+    def __init__(self, context: Context, config: dict | None = None):
+        super().__init__(context, config)
+        self.config = config
         self.mcp_server_name: str = "windows-mcp"
         self.control_keywords: list[str] = [
             "控制电脑",
@@ -114,7 +115,7 @@ class WindowsMcpControlPlugin(Star):
     def _load_config(self) -> None:
         """Load plugin configuration."""
         try:
-            config = self.context.get_config()
+            config = self.config if self.config is not None else self.context.get_config()
             if hasattr(config, "get"):
                 mcp_server_name = config.get("windows_mcp_server_name", self.mcp_server_name)
                 if isinstance(mcp_server_name, str) and mcp_server_name.strip():
@@ -197,6 +198,23 @@ class WindowsMcpControlPlugin(Star):
             )
         except Exception as e:
             logger.error(f"[WindowsMcpControl] Windows 状态上报服务启动失败: {e}")
+
+    async def _stop_status_server(self) -> None:
+        if self._status_server_task and not self._status_server_task.done():
+            self._status_server_task.cancel()
+            try:
+                await self._status_server_task
+            except asyncio.CancelledError:
+                pass
+        self._status_server_task = None
+        if self._status_runner is not None:
+            try:
+                await self._status_runner.cleanup()
+            except Exception as e:
+                logger.warning(f"[WindowsMcpControl] 状态上报服务关闭失败: {e}")
+        self._status_app = None
+        self._status_runner = None
+        self._status_site = None
 
     async def _handle_status_health(self, request):
         return web.json_response({"ok": True, "service": "windows-mcp-status"})
@@ -463,12 +481,12 @@ class WindowsMcpControlPlugin(Star):
 
     @filter.llm_tool(name="get_windows_cached_status")
     async def get_windows_cached_status(self, event: AstrMessageEvent) -> str:
-        """Get cached Windows computer status without calling windows-mcp or taking screenshots.
+        """Check what the user's Windows computer is currently doing.
 
-        Use this when the user asks what the Windows computer is doing, what the
-        foreground window is, or what is running in the background. This tool only
-        reads the latest status proactively reported by the Windows reporter.
-        If the report is stale, it says the network seems bad instead of using MCP.
+        Use this when the user asks what their computer is doing, what is open in
+        front, or what is running in the background. Reply naturally as if you took
+        a quick look. Do not mention tools, MCP, cache, reports, reporters,
+        webhooks, interfaces, screenshots, or any implementation details.
         """
         if not self._is_admin(event):
             return "权限拒绝：此功能仅限管理员使用。"
@@ -552,6 +570,18 @@ class WindowsMcpControlPlugin(Star):
     async def wmcp_cached_status(self, event: AstrMessageEvent):
         yield event.plain_result(self._format_windows_cached_status())
 
+    @filter.command("wmcp_reload_status", alias=["重载电脑状态服务"], description="重新加载配置并重启 Windows 状态上报服务")
+    @filter.permission_type(filter.PermissionType.ADMIN)
+    async def wmcp_reload_status(self, event: AstrMessageEvent):
+        await self._stop_status_server()
+        self._load_config()
+        self._load_status_cache()
+        if self.status_report_enabled:
+            await self._start_status_server()
+            yield event.plain_result(f"状态上报服务已重载: {self.status_report_host}:{self.status_report_port}")
+        else:
+            yield event.plain_result("状态上报服务已关闭。")
+
     @filter.command("wmcp_call", alias=["电脑控制"], description="直接调用 windows-mcp 工具（仅管理员）")
     @filter.permission_type(filter.PermissionType.ADMIN)
     async def wmcp_call(self, event: AstrMessageEvent, tool_name: str = "", arguments: str = "{}"):
@@ -574,11 +604,5 @@ class WindowsMcpControlPlugin(Star):
 
     async def terminate(self) -> None:
         """Clean up resources when plugin unloads."""
-        if self._status_server_task and not self._status_server_task.done():
-            self._status_server_task.cancel()
-        if self._status_runner is not None:
-            try:
-                await self._status_runner.cleanup()
-            except Exception as e:
-                logger.warning(f"[WindowsMcpControl] 状态上报服务关闭失败: {e}")
+        await self._stop_status_server()
         logger.info("[WindowsMcpControl] 插件已卸载")
